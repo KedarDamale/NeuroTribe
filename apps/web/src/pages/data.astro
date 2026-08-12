@@ -1,0 +1,154 @@
+---
+import Base from '../layouts/Base.astro';
+import { safeGet, fmt } from '../lib/api';
+
+const sources = await safeGet<any>('/data/sources', { sources: [] });
+const summary = await safeGet<any>('/data/summary', {
+  n_subjects: 0, n_scans: 0, by_movie: {}, by_site: {}, n_with_movie: 0,
+});
+const stimulus = await safeGet<any>('/stimulus', { stimuli: [], catalog: {}, primary: null });
+
+const STATUS_COLOR: Record<string, string> = {
+  VALIDATED: 'var(--color-vital)',
+  DISCOVERED: 'var(--color-signal)',
+  MISSING: 'var(--color-ember)',
+  INVALID: 'var(--color-alarm)',
+  QUARANTINED: 'var(--fg-faint)',
+};
+---
+
+<Base
+  title="Data Explorer"
+  subtitle={`${fmt.int(summary.n_subjects)} participants · ${fmt.int(summary.n_scans)} scans indexed`}
+  active="data"
+>
+  <div class="space-y-7">
+    <section>
+      <h2 class="mb-3 text-[1.05rem] font-semibold tracking-tight">Data sources</h2>
+      <div class="panel overflow-x-auto">
+        <table class="w-full min-w-[42rem] border-collapse text-left">
+          <thead>
+            <tr>
+              {['Source', 'Status', 'Files', 'Records', 'Size', 'Location'].map((column) => (
+                <th class="border-b px-3 py-2.5 text-[0.64rem] font-semibold uppercase tracking-[0.07em]" style="color: var(--fg-faint)">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sources.sources.map((row: any) => (
+              <tr>
+                <td class="border-b px-3 py-2.5 text-[0.83rem] font-medium">
+                  {row.label}
+                  {row.protected && (
+                    <span class="ml-1.5 rounded px-1 py-px text-[0.58rem] font-bold" style="background: color-mix(in oklab, var(--color-ember) 18%, transparent); color: var(--color-ember)">
+                      DUA
+                    </span>
+                  )}
+                </td>
+                <td class="border-b px-3 py-2.5">
+                  <span
+                    class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[0.68rem] font-semibold"
+                    style={`color: ${STATUS_COLOR[row.status] ?? 'var(--fg-muted)'}; background: color-mix(in oklab, ${STATUS_COLOR[row.status] ?? 'var(--fg-muted)'} 15%, transparent)`}
+                  >
+                    {row.status.toLowerCase()}
+                  </span>
+                </td>
+                <td class="border-b px-3 py-2.5 text-[0.82rem] numeric">{row.n_files || '—'}</td>
+                <td class="border-b px-3 py-2.5 text-[0.82rem] numeric">{fmt.int(row.records)}</td>
+                <td class="border-b px-3 py-2.5 text-[0.82rem] numeric" style="color: var(--fg-muted)">{fmt.bytes(row.size_bytes)}</td>
+                <td class="border-b px-3 py-2.5 text-[0.72rem] numeric" style="color: var(--fg-faint)">
+                  {row.paths?.[0] ?? '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="mb-1 text-[1.05rem] font-semibold tracking-tight">Movie classification</h2>
+      <p class="mb-3 max-w-2xl text-[0.79rem]" style="color: var(--fg-muted)">
+        Runs are bound to a documented HBN movie interval by <strong>acquisition
+        duration</strong>. Task labels are only a tiebreaker, so a site-specific
+        naming convention can never silently mis-assign a scan.
+      </p>
+      <div class="grid gap-3 sm:grid-cols-3">
+        {Object.entries(summary.by_movie ?? {}).map(([movie, count]: any) => (
+          <div class="panel p-4">
+            <div class="text-[0.66rem] font-semibold uppercase tracking-[0.09em]" style="color: var(--fg-faint)">
+              {movie.replaceAll('_', ' ')}
+            </div>
+            <div class="mt-1.5 text-2xl font-semibold numeric">{count}</div>
+            <div class="mt-0.5 text-[0.72rem]" style="color: var(--fg-muted)">BOLD runs</div>
+          </div>
+        ))}
+        {Object.keys(summary.by_movie ?? {}).length === 0 && (
+          <div class="panel p-4 text-[0.8rem]" style="color: var(--fg-muted)">
+            No scans indexed yet.
+          </div>
+        )}
+      </div>
+    </section>
+
+    <section>
+      <h2 class="mb-1 text-[1.05rem] font-semibold tracking-tight">Stimulus catalog</h2>
+      <p class="mb-3 max-w-2xl text-[0.79rem]" style="color: var(--fg-muted)">
+        {stimulus.policy}
+      </p>
+      <div class="grid gap-3 md:grid-cols-2">
+        {Object.entries(stimulus.catalog ?? {}).map(([key, spec]: any) => {
+          const registered = stimulus.stimuli?.find((s: any) => s.key === key);
+          const ok = registered?.validated;
+          return (
+            <div class="panel relative overflow-hidden p-4">
+              <div class="absolute inset-y-0 left-0 w-0.5" style={`background: ${ok ? 'var(--color-vital)' : 'var(--color-ember)'}`} />
+              <div class="flex items-start justify-between gap-2 pl-2">
+                <div>
+                  <div class="text-[0.92rem] font-semibold">{spec.label}</div>
+                  <div class="mt-0.5 text-[0.72rem] numeric" style="color: var(--fg-muted)">
+                    {spec.source_interval_start} → {spec.source_interval_end} ·
+                    {' '}{spec.expected_duration_sec}s ± {spec.duration_tolerance_sec}s
+                  </div>
+                </div>
+                <span
+                  class="shrink-0 rounded-full px-2 py-0.5 text-[0.66rem] font-semibold"
+                  style={`color: ${ok ? 'var(--color-vital)' : 'var(--color-ember)'}; background: color-mix(in oklab, ${ok ? 'var(--color-vital)' : 'var(--color-ember)'} 15%, transparent)`}
+                >
+                  {ok ? 'validated' : 'awaiting'}
+                </span>
+              </div>
+              {registered?.validated && (
+                <div class="mt-3 flex gap-2 pl-2">
+                  <img src={`/api/stimulus/${key}/frame/first`} alt="First frame" class="h-16 rounded-md" loading="lazy" />
+                  <img src={`/api/stimulus/${key}/frame/last`} alt="Last frame" class="h-16 rounded-md" loading="lazy" />
+                  <div class="text-[0.68rem] numeric" style="color: var(--fg-faint)">
+                    {registered.width}×{registered.height} · {registered.fps?.toFixed(1)} fps<br />
+                    sha256 {registered.sha256?.slice(0, 12)}…
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    <section>
+      <h2 class="mb-3 text-[1.05rem] font-semibold tracking-tight">Sites</h2>
+      <div class="panel flex flex-wrap gap-2 p-4">
+        {Object.entries(summary.by_site ?? {}).map(([site, count]: any) => (
+          <span class="rounded-lg px-2.5 py-1.5 text-[0.78rem]" style="background: var(--glass)">
+            {site === 'null' ? 'unknown' : site}
+            <strong class="ml-1.5 numeric">{count}</strong>
+          </span>
+        ))}
+        {Object.keys(summary.by_site ?? {}).length === 0 && (
+          <span class="text-[0.8rem]" style="color: var(--fg-muted)">No sites recorded yet.</span>
+        )}
+      </div>
+    </section>
+  </div>
+</Base>

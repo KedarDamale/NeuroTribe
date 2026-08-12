@@ -1,0 +1,21 @@
+---
+import Base from '../layouts/Base.astro';
+import QCTable from '../components/react/QCTable.tsx';
+import { safeGet } from '../lib/api';
+
+const payload = await safeGet<any>('/qc', {
+  rows: [],
+  summary: { n_rows: 0, by_status: {}, n_approximate: 0, median_usable_frame_fraction: null, median_mean_fd: null },
+  sites: [],
+  groups: [],
+  policy: {},
+});
+---
+
+<Base
+  title="Quality Control"
+  subtitle="Per-participant preprocessing, motion, MRIQC and alignment status"
+  active="qc"
+>
+  <QCTable client:load initial={payload} />
+</Base>

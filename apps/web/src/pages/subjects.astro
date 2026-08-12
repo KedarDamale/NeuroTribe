@@ -1,0 +1,18 @@
+---
+import Base from '../layouts/Base.astro';
+import SubjectExplorer from '../components/react/SubjectExplorer.tsx';
+import { safeGet, type SubjectSummary } from '../lib/api';
+
+const payload = await safeGet<{ subjects: SubjectSummary[]; count: number }>(
+  '/subjects?limit=500',
+  { subjects: [], count: 0 },
+);
+---
+
+<Base
+  title="Subject Explorer"
+  subtitle={`${payload.count} participants · interactive fsaverage5 cortical viewer`}
+  active="subjects"
+>
+  <SubjectExplorer client:load subjects={payload.subjects} />
+</Base>

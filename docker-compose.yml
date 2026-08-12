@@ -1,0 +1,191 @@
+# NeuroTRIBE-HBN — full stack.
+#
+#   docker compose up -d --build
+#   open http://localhost:4321
+#
+# The worker mounts the host Docker socket so it can launch the fMRIPrep
+# container. Protected data (phenotype, stimuli, derivatives) stays on bind
+# mounts under ./data and never enters an image.
+
+name: neurotribe
+
+x-common-env: &common-env
+  NEUROTRIBE_ROOT: /app
+  NEUROTRIBE_PROFILE: ${NEUROTRIBE_PROFILE:-development}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-neurotribe}:${POSTGRES_PASSWORD:-neurotribe}@postgres:5432/${POSTGRES_DB:-neurotribe}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/1
+  PYTHONPATH: /app
+  # Model caches live on a named volume so a rebuild never re-downloads them.
+  HF_HOME: /app/cache/models/huggingface
+  TORCH_HOME: /app/cache/models/torch
+  # Privacy: no scientific data leaves this machine.
+  NO_PROXY: "*"
+  WANDB_DISABLED: "true"
+  HF_HUB_DISABLE_TELEMETRY: "1"
+
+x-common-volumes: &common-volumes
+  - ./data:/app/data
+  - ./config:/app/config:ro
+  - ./work:/app/work
+  - model-cache:/app/cache
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-neurotribe}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-neurotribe}
+      POSTGRES_DB: ${POSTGRES_DB:-neurotribe}
+      # Deterministic collation keeps ordering identical across hosts.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-neurotribe} -d ${POSTGRES_DB:-neurotribe}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      target: ${BUILD_TARGET:-base}
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      NEUROTRIBE_AUTO_CREATE_SCHEMA: "0"   # migrations own the schema
+      NEUROTRIBE_CORS_ORIGINS: "http://localhost:4321,http://127.0.0.1:4321,http://web:4321"
+    volumes: *common-volumes
+    ports:
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    environment: *common-env
+    volumes: *common-volumes
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      target: ${BUILD_TARGET:-base}
+    restart: unless-stopped
+    environment: *common-env
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+      - ./work:/app/work
+      - model-cache:/app/cache
+      # Launch fMRIPrep on the host daemon.
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - celery
+      - -A
+      - neurotribe.jobs.celery_app:app
+      - worker
+      - --loglevel=info
+      - --concurrency=${WORKER_CONCURRENCY:-2}
+      - --queues=neurotribe
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A neurotribe.jobs.celery_app:app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
+
+  beat:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+      target: ${BUILD_TARGET:-base}
+    restart: unless-stopped
+    environment: *common-env
+    volumes: *common-volumes
+    command:
+      - celery
+      - -A
+      - neurotribe.jobs.celery_app:app
+      - beat
+      - --loglevel=info
+      - --schedule=/app/work/celerybeat-schedule
+    healthcheck:
+      # Beat serves no port. It is healthy while it keeps rewriting its schedule
+      # file, so a stalled scheduler is detected within two intervals.
+      test: ["CMD-SHELL", "python -c \"import pathlib,time,sys; p=pathlib.Path('/app/work/celerybeat-schedule'); sys.exit(0 if p.exists() and time.time()-p.stat().st_mtime < 300 else 1)\""]
+      interval: 60s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+      target: ${WEB_TARGET:-runtime}
+      args:
+        PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://localhost:8000/api}
+    restart: unless-stopped
+    environment:
+      PUBLIC_API_BASE: ${PUBLIC_API_BASE:-http://localhost:8000/api}
+      API_INTERNAL_BASE: http://api:8000/api
+    ports:
+      - "${WEB_PORT:-4321}:4321"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  redis-data:
+  model-cache:

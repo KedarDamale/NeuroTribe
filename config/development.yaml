@@ -1,0 +1,35 @@
+# Development overrides — merged on top of default.yaml.
+# NOTE: settings here are permissive for fast iteration. Any run performed with
+# this profile is stamped `profile: development` in the provenance manifest and
+# is NEVER eligible to be reported as a primary scientific result.
+
+logging:
+  level: DEBUG
+  json: false
+
+tribe:
+  backend: auto # falls back to mock if the real model cannot be loaded
+  device: cpu
+
+preprocessing:
+  engine: fmriprep
+  fmriprep:
+    nthreads: 2
+    omp_nthreads: 1
+    mem_mb: 4000
+  approximate_volume_projection:
+    enabled: true # dev-only projection allowed, always flagged in outputs
+
+autopilot:
+  tick_interval_sec: 10
+  disk:
+    min_free_gb: 5
+  smoke_test:
+    enabled: true
+
+cohort:
+  min_group_size: 3
+
+qc:
+  motion:
+    min_usable_frames: 10

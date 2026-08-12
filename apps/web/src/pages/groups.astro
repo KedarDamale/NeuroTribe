@@ -1,0 +1,28 @@
+---
+import Base from '../layouts/Base.astro';
+import GroupResults from '../components/react/GroupResults.tsx';
+import { safeGet } from '../lib/api';
+
+const initial = await safeGet<any>('/groups/results?tier=PRIMARY&metric=mad', {
+  available: false,
+  reason: 'The API is unreachable, or no group analysis has completed yet.',
+});
+---
+
+<Base
+  title="Group Analysis"
+  subtitle="Confirmed ADHD vs comparison cohort · covariate-adjusted, FDR-corrected"
+  active="groups"
+>
+  <div
+    class="panel mb-5 px-4 py-3 text-[0.79rem] leading-relaxed"
+    style="color: var(--fg-muted)"
+  >
+    Every contrast is adjusted for age, sex, acquisition site and mean head
+    motion. A raw difference of group means is never reported as evidence about
+    ADHD biology, and results are always presented with effect sizes,
+    confidence intervals and sample sizes rather than significance markers alone.
+  </div>
+
+  <GroupResults client:load initial={initial} />
+</Base>

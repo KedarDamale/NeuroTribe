@@ -1,0 +1,23 @@
+---
+import Base from '../layouts/Base.astro';
+import JobsTable from '../components/react/JobsTable.tsx';
+import LogStream from '../components/react/LogStream.tsx';
+import { safeGet } from '../lib/api';
+
+const jobs = await safeGet<any>('/jobs?limit=120', { jobs: [], by_state: {}, active: 0 });
+---
+
+<Base title="Jobs" subtitle="Live worker activity and logs" active="jobs">
+  <div class="space-y-7">
+    <JobsTable client:load initial={jobs} />
+
+    <section>
+      <h2 class="mb-1 text-[1.05rem] font-semibold tracking-tight">Logs</h2>
+      <p class="mb-3 text-[0.79rem]" style="color: var(--fg-muted)">
+        INFO, WARNING and ERROR only. Full DEBUG output stays in files —
+        <a href="/api/logs/download" class="underline underline-offset-2" style="color: var(--color-signal)">download the full log</a>.
+      </p>
+      <LogStream client:visible />
+    </section>
+  </div>
+</Base>

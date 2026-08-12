@@ -1,0 +1,29 @@
+# Production / research-grade overrides — merged on top of default.yaml.
+# This profile forbids every approximation that would invalidate a result.
+
+logging:
+  level: INFO
+  json: true
+
+tribe:
+  backend: real # mock backend is a hard error under this profile
+  device: auto
+
+preprocessing:
+  engine: fmriprep
+  approximate_volume_projection:
+    enabled: false # research-grade surfaces only
+
+autopilot:
+  tick_interval_sec: 30
+  max_parallel_preprocessing: 1
+  disk:
+    min_free_gb: 50
+
+analysis:
+  group:
+    bootstrap_ci: 5000
+
+privacy:
+  allow_external_telemetry: false
+  allow_external_llm_calls: false

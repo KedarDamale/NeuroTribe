@@ -1,0 +1,281 @@
+# NeuroTRIBE-HBN — default configuration
+# Every scientific parameter that affects a result MUST live here (or in an
+# override file) so that `analysis_config_hash` in the provenance manifest is
+# meaningful. Never hard-code a scientific parameter in Python.
+
+project:
+  name: NeuroTRIBE-HBN
+  title: >-
+    Stimulus-conditioned normative cortical response analysis for ADHD using
+    TRIBE v2 and Healthy Brain Network movie-fMRI
+  version: "1.0.0"
+  disease_target: adhd
+  research_use_only: true
+
+paths:
+  # All paths are resolved relative to NEUROTRIBE_ROOT (default: repo root).
+  data: data
+  external: data/external
+  metadata: data/metadata
+  phenotype: data/phenotype
+  phenotype_incoming: data/phenotype/incoming
+  stimuli: data/stimuli
+  stimuli_incoming: data/stimuli/incoming
+  raw: data/raw
+  derivatives: data/derivatives
+  fmriprep_out: data/derivatives/fmriprep
+  freesurfer_out: data/derivatives/freesurfer
+  tribe: data/tribe
+  analysis: data/analysis
+  reports: data/reports
+  cache: cache
+  models_cache: cache/models
+  downloads_cache: cache/downloads
+  work: work
+
+discovery:
+  # Extra directories scanned for pre-existing HBN assets on startup.
+  search_roots:
+    - .
+    - data/external
+  max_depth: 4
+  # Hashing very large NIfTI files is expensive; above this size we hash only
+  # the first+last chunk plus size (recorded as `partial` in the registry).
+  full_hash_max_bytes: 268435456 # 256 MiB
+  partial_hash_chunk_bytes: 8388608 # 8 MiB
+
+stimulus:
+  # HBN MRI protocol documented movie intervals.
+  # https://fcon_1000.projects.nitrc.org/indi/cmi_healthy_brain_network/MRI_Protocol.html
+  primary: auto # auto | despicable_me | the_present
+  catalog:
+    the_present:
+      label: "The Present"
+      source_interval_start: "00:00:00"
+      source_interval_end: "00:03:21"
+      expected_duration_sec: 201.0
+      duration_tolerance_sec: 3.0
+    despicable_me:
+      label: "Despicable Me"
+      source_interval_start: "01:02:09"
+      source_interval_end: "01:12:09"
+      expected_duration_sec: 600.0
+      duration_tolerance_sec: 5.0
+  # Ordered preference when primary == auto.
+  preference_order:
+    - despicable_me
+    - the_present
+  validation:
+    min_width: 320
+    min_height: 240
+    min_fps: 10.0
+    max_fps: 61.0
+    allowed_containers: [mp4, mkv, mov, m4v, webm]
+
+bids:
+  # We NEVER hard-code task labels. These are *candidate* regex hints used to
+  # rank BIDS tasks; final classification is confirmed by duration matching
+  # against the stimulus catalog. See neurotribe/acquisition/bids.py.
+  task_name_hints:
+    despicable_me: ["despicable", "movieDM", "movie_dm", "dm"]
+    the_present: ["present", "movieTP", "movie_tp", "tp"]
+  # A run is classified to a movie only if its acquisition duration is within
+  # this fraction of the stimulus duration AND (hint matches OR only one
+  # candidate remains).
+  duration_match_tolerance_frac: 0.25
+  required_suffixes: [bold, T1w]
+  datatypes: [func, anat]
+
+phenotype:
+  # HBN clinician consensus diagnosis instrument.
+  # https://fcon_1000.projects.nitrc.org/indi/cmi_healthy_brain_network/Phenotypic.html
+  instrument: Diagnosis_ClinicianConsensus
+  max_diagnoses_per_subject: 10
+  # Canonical certainty vocabulary. Parsing is fuzzy but maps into these.
+  certainty_levels:
+    - Confirmed
+    - Presumptive
+    - Requires Confirmation
+    - Rule-out
+    - By History
+    - Past
+    - No Diagnosis Given
+    - Incomplete Eval
+  adhd_patterns:
+    - "adhd"
+    - "attention[- ]deficit"
+    - "attention deficit/hyperactivity"
+  no_diagnosis_patterns:
+    - "no diagnosis given"
+    - "no diagnosis or symptoms"
+
+cohort:
+  primary:
+    case:
+      label: "Confirmed ADHD"
+      diagnosis: adhd
+      certainty: [Confirmed]
+    control:
+      label: "No Diagnosis Given"
+      diagnosis: none
+      certainty: [No Diagnosis Given]
+  exploratory:
+    control:
+      label: "non-ADHD comparison cohort"
+      # Any subject with phenotype data and no ADHD diagnosis at any certainty
+      # above `Rule-out`, regardless of other diagnoses.
+      exclude_adhd_certainty: [Confirmed, Presumptive, By History, Past]
+  min_group_size: 10
+  imbalance_warn_ratio: 3.0
+
+qc:
+  # Scan-level inclusion policy. Every exclusion is recorded with a reason.
+  mriqc:
+    max_mean_fd: 0.5 # mm
+    min_tsnr: null # null disables the check
+  motion:
+    fd_threshold_mm: 0.5
+    dvars_threshold_sd: 3.0
+    censor_pad_before: 0
+    censor_pad_after: 1
+    min_usable_frame_fraction: 0.5
+    min_usable_frames: 60
+  anat:
+    require_t1w: true
+
+preprocessing:
+  engine: fmriprep # fmriprep | none
+  fmriprep:
+    image: nipreps/fmriprep:24.1.1
+    version_pin: "24.1.1"
+    output_spaces:
+      - fsaverage5
+      - MNI152NLin2009cAsym:res-2
+    nthreads: 4
+    omp_nthreads: 2
+    mem_mb: 8000
+    extra_args:
+      - "--notrack"
+      - "--skip-bids-validation"
+      - "--cifti-output"
+    use_aroma: false
+  denoise:
+    strategy: motion24_acompcor # motion6 | motion24 | motion24_acompcor | custom
+    detrend: true
+    standardize: zscore
+    high_pass_hz: 0.008
+    low_pass_hz: null
+    global_signal_regression: false # NEVER default-on; HBN notes no consensus
+    n_acompcor_components: 5
+    drop_nonsteady_state: true
+    nonsteady_state_max: 8
+  approximate_volume_projection:
+    # Development-only fallback when FreeSurfer surfaces are unavailable.
+    enabled: false
+    excluded_from_final_analysis: true
+
+surface:
+  space: fsaverage5
+  hemispheres: [L, R]
+  vertices_per_hemi: 10242
+  total_vertices: 20484
+  # Hemisphere ordering in the flattened vertex axis. This MUST be confirmed
+  # against the TRIBE implementation by tribe/geometry.py before any analysis.
+  hemi_order: [L, R]
+  medial_wall_policy: mask # mask | keep
+  atlas:
+    name: schaefer
+    n_parcels: 200
+    n_networks: 7
+    networks:
+      - Visual
+      - Somatomotor
+      - DorsalAttention
+      - SalienceVentralAttention
+      - Limbic
+      - Control
+      - Default
+
+tribe:
+  repo_url: https://github.com/facebookresearch/tribev2
+  # Pinned for reproducibility. Autopilot records the resolved commit it used.
+  git_ref: main
+  model_id: facebook/tribev2
+  model_revision: main
+  device: auto # auto | cuda | mps | cpu
+  batch_size: 1
+  # TRIBE v2 states its prediction timing already incorporates a 5 s
+  # hemodynamic-lag offset. We therefore apply NO additional shift and rely on
+  # the timestamps TRIBE returns.
+  applies_own_hrf_offset: true
+  additional_hrf_shift_sec: 0.0
+  backend: auto # auto | real | mock  (mock is fixtures-only, never final)
+
+alignment:
+  interpolation: linear # linear | cubic
+  # Never extrapolate outside the TRIBE prediction support.
+  allow_extrapolation: false
+  edge_trim_sec: 2.0
+  # Optional cross-correlation lag search used ONLY as a validation diagnostic,
+  # never to silently "fix" timing.
+  validation_lag_search_sec: 8.0
+  validation_max_acceptable_lag_sec: 2.0
+
+analysis:
+  normalization: zscore # zscore | none
+  metrics:
+    - pearson_r
+    - mad
+    - residual_variance
+  rolling_window_sec: 10.0
+  rolling_step_sec: 1.0
+  top_peak_windows: 10
+  roi:
+    aggregate: mean
+  group:
+    model: "metric ~ adhd + age + sex + site + mean_fd"
+    covariates: [age, sex, site, mean_fd]
+    multiple_comparisons: fdr_bh
+    alpha: 0.05
+    bootstrap_ci: 2000
+  sanity:
+    max_nan_fraction: 0.02
+    correlation_bounds: [-1.0, 1.0]
+
+autopilot:
+  enabled: true
+  tick_interval_sec: 20
+  # How long a WAITING_EXTERNAL stage waits before re-checking its gate. Gated
+  # stages stay runnable indefinitely, so without this they would consume the
+  # whole per-tick budget and starve stages that can actually progress. Intake
+  # directories are polled separately by the watch_intake task, so a newly
+  # supplied file is still detected within one tick regardless of this value.
+  waiting_recheck_sec: 60
+  max_parallel_preprocessing: 1
+  retry:
+    max_attempts: 3
+    backoff_base_sec: 30
+    backoff_max_sec: 3600
+  disk:
+    min_free_gb: 20
+    per_subject_estimate_gb: 12
+  smoke_test:
+    enabled: true
+    synthetic_video_sec: 20
+  # Only fetch data for subjects the cohort builder actually needs.
+  selective_fetch: true
+
+privacy:
+  # Hard block on shipping protected phenotype anywhere off-box.
+  allow_external_telemetry: false
+  allow_external_llm_calls: false
+  blocked_hosts:
+    - api.openai.com
+    - api.anthropic.com
+    - sentry.io
+    - api.wandb.ai
+
+logging:
+  level: INFO
+  json: true
+  retain_days: 30

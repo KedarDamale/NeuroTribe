@@ -1,0 +1,131 @@
+---
+import Base from '../layouts/Base.astro';
+import PipelineBoard from '../components/react/PipelineBoard.tsx';
+import BlockersPanel from '../components/react/BlockersPanel.tsx';
+import { safeGet, type Dashboard } from '../lib/api';
+
+const FALLBACK: Dashboard = {
+  disclaimer: 'Research Use Only - Not a diagnostic or medical device.',
+  profile: 'unknown',
+  analysis_config_hash: '—',
+  cards: {
+    dataset: 'HBN', subjects_indexed: 0, movie_fmri_subjects: 0, movie_scans: 0,
+    adhd_labels: 'WAITING', n_phenotype_subjects: 0, tribe_model: 'UNKNOWN',
+    stimulus: 'MISSING', pipeline: 'UNAVAILABLE', overall_progress: 0,
+    n_valid_comparisons: 0, n_assets: 0,
+  },
+  pipeline: { groups: [], by_state: {}, n_stages: 0 },
+  blockers: [], system: null, cohort: null, latest_group_run: null,
+};
+
+const dashboard = await safeGet<Dashboard>('/dashboard', FALLBACK);
+const apiDown = dashboard.profile === 'unknown';
+const system = dashboard.system;
+---
+
+<Base
+  title="Dashboard"
+  subtitle={`Autopilot · profile ${dashboard.profile} · config ${dashboard.analysis_config_hash}`}
+  active="dashboard"
+>
+  {apiDown && (
+    <div class="panel mb-5 px-4 py-3 text-[0.82rem]" style="color: var(--color-alarm)">
+      Cannot reach the NeuroTRIBE API. Start the stack with
+      <code class="numeric"> docker compose up -d </code> and reload.
+    </div>
+  )}
+
+  <div class="space-y-8">
+    <PipelineBoard client:load initial={dashboard} />
+
+    <section>
+      <h2 class="mb-1 text-[1.05rem] font-semibold tracking-tight">Blockers</h2>
+      <p class="mb-3 max-w-3xl text-[0.8rem]" style="color: var(--fg-muted)">
+        Three gates legitimately require human action and are never faked: HBN
+        DUA-approved phenotype data, the exact legally obtained movie stimulus,
+        and a FreeSurfer license. Everything else keeps building while they wait.
+      </p>
+      <BlockersPanel client:load initial={dashboard.blockers} />
+    </section>
+
+    {system && (
+      <section>
+        <h2 class="mb-3 text-[1.05rem] font-semibold tracking-tight">System readiness</h2>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div class="panel p-4">
+            <div class="text-[0.63rem] font-semibold uppercase tracking-[0.09em]" style="color: var(--fg-faint)">Compute</div>
+            <div class="mt-1 text-[1.05rem] font-semibold numeric">
+              {system.cpu_count} cores · {system.ram_gb ?? '?'} GB
+            </div>
+            <div class="mt-0.5 text-[0.72rem]" style="color: var(--fg-muted)">
+              {system.gpu_name ?? 'No GPU — validated CPU path'}
+            </div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[0.63rem] font-semibold uppercase tracking-[0.09em]" style="color: var(--fg-faint)">Disk</div>
+            <div class="mt-1 text-[1.05rem] font-semibold numeric">
+              {system.free_disk_gb} GB free
+            </div>
+            <div class="mt-0.5 text-[0.72rem]" style="color: var(--fg-muted)">
+              of {system.total_disk_gb} GB
+            </div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[0.63rem] font-semibold uppercase tracking-[0.09em]" style="color: var(--fg-faint)">Docker</div>
+            <div class="mt-1 text-[1.05rem] font-semibold numeric">
+              {system.docker_available ? system.docker_version : 'unavailable'}
+            </div>
+            <div class="mt-0.5 text-[0.72rem]" style="color: var(--fg-muted)">
+              {system.docker_memory_gb ? `${system.docker_memory_gb} GB to containers` : '—'}
+            </div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[0.63rem] font-semibold uppercase tracking-[0.09em]" style="color: var(--fg-faint)">Toolchain</div>
+            <div class="mt-1 flex flex-wrap gap-1.5 text-[0.7rem]">
+              {[
+                ['TRIBE v2', system.tribe_available],
+                ['FreeSurfer', system.freesurfer_license],
+                ['ffmpeg', system.ffmpeg_available],
+                ['CUDA', system.cuda_available],
+              ].map(([label, ok]) => (
+                <span
+                  class="rounded px-1.5 py-0.5 font-semibold"
+                  style={`color: ${ok ? 'var(--color-vital)' : 'var(--fg-faint)'}; background: color-mix(in oklab, ${ok ? 'var(--color-vital)' : 'var(--fg-faint)'} 14%, transparent)`}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        {system.warnings.length > 0 && (
+          <ul class="mt-3 space-y-1 text-[0.76rem]" style="color: var(--color-ember)">
+            {system.warnings.map((warning) => <li>⚠ {warning}</li>)}
+          </ul>
+        )}
+      </section>
+    )}
+
+    <section class="panel p-5">
+      <h2 class="text-[0.95rem] font-semibold tracking-tight">What this system does — and does not do</h2>
+      <div class="mt-2 grid gap-4 text-[0.8rem] leading-relaxed md:grid-cols-2" style="color: var(--fg-muted)">
+        <div>
+          <p class="mb-1.5 font-semibold" style="color: var(--fg)">It asks</p>
+          <p>
+            Do participants with confirmed ADHD show systematically different
+            stimulus-evoked cortical responses from an appropriate comparison
+            cohort, relative to the response predicted by TRIBE v2?
+          </p>
+        </div>
+        <div>
+          <p class="mb-1.5 font-semibold" style="color: var(--color-alarm)">It never claims</p>
+          <p>
+            It does not diagnose. It produces no per-person probability of ADHD,
+            and deviation from a normative model is not pathology. TRIBE v2 is
+            used as a pretrained reference encoder and is never retrained here.
+          </p>
+        </div>
+      </div>
+    </section>
+  </div>
+</Base>
