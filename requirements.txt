@@ -35,3 +35,4 @@ PyYAML>=6.0,<7.0
 psutil>=6.0,<8.0
 pyarrow>=17.0,<21.0
 httpx>=0.27,<1.0
+gradio_client>=1.10,<2.0

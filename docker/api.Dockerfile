@@ -10,7 +10,7 @@ ENV PYTHONUNBUFFERED=1 \
     NEUROTRIBE_ROOT=/app
 
 # ffmpeg  -> stimulus probing / frame extraction / synthetic smoke-test clip
-# git     -> resolving the pinned TRIBE commit for provenance
+# git     -> install and resolve the pinned TRIBE commit for provenance
 # curl    -> container healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
@@ -24,6 +24,22 @@ WORKDIR /app
 
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# TRIBE v2 is part of the runnable stack, not a manual host prerequisite.  The
+# model package is baked into the image; its much larger pretrained weights are
+# fetched once by the `tribe-bootstrap` Compose service into the model-cache
+# volume, which survives container and image rebuilds.
+ARG TRIBE_REPO=https://github.com/facebookresearch/tribev2
+ARG TRIBE_GIT_REF=main
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+ARG TORCH_VERSION=2.5.1+cpu
+ARG TORCHVISION_VERSION=0.20.1+cpu
+# Pin CPU builds explicitly.  TRIBE accepts torch 2.5.x, but an unpinned
+# resolver can choose the much larger generic/CUDA-enabled wheel from PyPI.
+RUN pip install --index-url "${TORCH_INDEX_URL}" \
+        "torch==${TORCH_VERSION}" \
+        "torchvision==${TORCHVISION_VERSION}" \
+    && pip install "git+${TRIBE_REPO}@${TRIBE_GIT_REF}"
 
 # The Docker CLI lets the worker launch the fMRIPrep container on the host
 # daemon (the socket is mounted read-write in docker-compose).

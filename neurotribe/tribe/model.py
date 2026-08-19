@@ -160,7 +160,7 @@ class LoadedModel:
         }
 
 
-def load(settings: Settings) -> LoadedModel:
+def load(settings: Settings, *, visual_only: bool = False) -> LoadedModel:
     """Load TRIBE according to the configured backend policy."""
     requested = str(settings.get("tribe.backend", "auto")).lower()
     cache_folder = settings.paths.models_cache
@@ -183,8 +183,18 @@ def load(settings: Settings) -> LoadedModel:
     if available:
         try:
             module = importlib.import_module("tribev2")
+            # Image-only exploratory runs carry no meaningful audio signal.
+            # Keeping TRIBE's default video+audio setup would download and run
+            # Wav2Vec-BERT (about 2.3 GB) against deliberately silent clips.
+            config_update = None
+            if visual_only:
+                config_update = {
+                    "data.video_feature.use_audio": False,
+                    "data.features_to_use": ["video"],
+                }
             handle = module.TribeModel.from_pretrained(  # type: ignore[attr-defined]
                 version.model_id, cache_folder=str(cache_folder),
+                config_update=config_update,
             )
         except Exception as exc:  # noqa: BLE001 - model loading fails many ways
             if requested == "real" or settings.is_production:

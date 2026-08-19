@@ -16,6 +16,9 @@ const CLIENT_BASE = import.meta.env.PUBLIC_API_BASE ?? '/api';
 export const apiBase = (): string =>
   typeof window === 'undefined' ? SERVER_BASE : CLIENT_BASE;
 
+/** A browser-reachable URL safe to render into server-side HTML links. */
+export const publicApiBase = (): string => CLIENT_BASE;
+
 export class ApiError extends Error {
   constructor(
     message: string,

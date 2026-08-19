@@ -17,6 +17,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { api } from '../../lib/api';
 
 // ------------------------------------------------------------------ types
@@ -105,6 +106,7 @@ function robustDomain(values: Float32Array, diverging: boolean): [number, number
 // ------------------------------------------------------------------ view
 
 const VIEWS = {
+  oblique: { azimuth: -Math.PI * 0.28, polar: Math.PI * 0.39 },
   lateral: { azimuth: -Math.PI / 2, polar: Math.PI / 2 },
   medial: { azimuth: Math.PI / 2, polar: Math.PI / 2 },
   dorsal: { azimuth: 0, polar: 0.12 },
@@ -132,6 +134,7 @@ export default function CorticalViewer({
     camera: THREE.PerspectiveCamera;
     meshes: Record<string, THREE.Mesh>;
     group: THREE.Group;
+    controls: OrbitControls;
     dispose: () => void;
   } | null>(null);
 
@@ -139,7 +142,7 @@ export default function CorticalViewer({
   const [values, setValues] = useState<Float32Array | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'empty'>('loading');
   const [message, setMessage] = useState<string>('Loading cortical surface…');
-  const [view, setView] = useState<ViewName>('lateral');
+  const [view, setView] = useState<ViewName>('oblique');
   const [hemi, setHemi] = useState<HemiMode>('both');
   const [hover, setHover] = useState<{ vertex: number; value: number; x: number; y: number } | null>(null);
 
@@ -166,83 +169,53 @@ export default function CorticalViewer({
     renderer.toneMappingExposure = 1.05;
     mount.appendChild(renderer.domElement);
     renderer.domElement.style.touchAction = 'none';
-    renderer.domElement.setAttribute('role', 'img');
-    renderer.domElement.setAttribute('aria-label', `Cortical surface, ${legendLabel}`);
+    renderer.domElement.setAttribute('role', 'application');
+    renderer.domElement.setAttribute('aria-label', `Interactive cortical surface, ${legendLabel}. Drag to rotate, scroll to zoom, right drag to pan.`);
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(
       38, mount.clientWidth / mount.clientHeight, 1, 3000,
     );
-    camera.position.set(0, 0, 420);
+    // Start from an oblique, three-quarter angle. The old lateral camera
+    // looked straight through the two centred hemispheres, making them overlap
+    // and read as one flat surface.
+    camera.position.set(245, 170, 335);
 
     const group = new THREE.Group();
     scene.add(group);
 
     // Three-point lighting: readable shading without washing out the colour map.
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const key = new THREE.DirectionalLight(0xffffff, 1.5);
-    key.position.set(1, 1.2, 1.4);
+    scene.add(new THREE.HemisphereLight(0xdde8ff, 0x1a1025, 0.42));
+    const key = new THREE.DirectionalLight(0xffffff, 2.25);
+    key.position.set(1.5, 2, 2.2);
     scene.add(key);
-    const fill = new THREE.DirectionalLight(0x9fbaff, 0.65);
-    fill.position.set(-1.2, -0.4, 0.8);
+    const fill = new THREE.DirectionalLight(0x80b4ff, 0.5);
+    fill.position.set(-2.2, -0.8, 1.1);
     scene.add(fill);
-    const rim = new THREE.DirectionalLight(0xffb0e8, 0.5);
-    rim.position.set(0, 0.5, -1.5);
+    const rim = new THREE.DirectionalLight(0xffb0e8, 0.95);
+    rim.position.set(0.4, 1.3, -2.2);
     scene.add(rim);
 
-    // -- orbit state (hand-rolled: no extra dependency, exact behaviour we want)
-    const spherical = new THREE.Spherical(420, Math.PI / 2, -Math.PI / 2);
-    const target = new THREE.Vector3(0, 0, 0);
-    let dragging = false;
-    let lastX = 0;
-    let lastY = 0;
-    let autoRotate = true;
-
-    const applyCamera = () => {
-      spherical.phi = Math.max(0.05, Math.min(Math.PI - 0.05, spherical.phi));
-      spherical.radius = Math.max(150, Math.min(1200, spherical.radius));
-      camera.position.setFromSpherical(spherical).add(target);
-      camera.lookAt(target);
-    };
-    applyCamera();
-
-    const onPointerDown = (event: PointerEvent) => {
-      dragging = true;
-      autoRotate = false;
-      lastX = event.clientX;
-      lastY = event.clientY;
-      (event.target as Element).setPointerCapture?.(event.pointerId);
-    };
-    const onPointerUp = (event: PointerEvent) => {
-      dragging = false;
-      (event.target as Element).releasePointerCapture?.(event.pointerId);
-    };
-    const onPointerMove = (event: PointerEvent) => {
-      if (dragging) {
-        spherical.theta -= (event.clientX - lastX) * 0.0075;
-        spherical.phi -= (event.clientY - lastY) * 0.0075;
-        lastX = event.clientX;
-        lastY = event.clientY;
-        applyCamera();
-      }
-    };
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      autoRotate = false;
-      spherical.radius *= 1 + Math.sign(event.deltaY) * 0.09;
-      applyCamera();
-    };
-
-    renderer.domElement.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('pointermove', onPointerMove);
-    renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
+    // Native Three.js controls: left drag rotates, wheel/pinch zooms, and
+    // right drag (or two-finger drag) pans. Damping gives the brain weight.
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.enablePan = true;
+    controls.panSpeed = 0.7;
+    controls.rotateSpeed = 0.72;
+    controls.zoomSpeed = 0.9;
+    controls.minDistance = 160;
+    controls.maxDistance = 1050;
+    controls.minPolarAngle = 0.08;
+    controls.maxPolarAngle = Math.PI - 0.08;
+    controls.update();
 
     // -- picking
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const onPick = (event: PointerEvent) => {
-      if (dragging) return;
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -279,10 +252,7 @@ export default function CorticalViewer({
     const animate = () => {
       if (disposed) return;
       frame = requestAnimationFrame(animate);
-      if (autoRotate) {
-        spherical.theta += 0.0016;
-        applyCamera();
-      }
+      controls.update();
       renderer.render(scene, camera);
     };
     animate();
@@ -291,11 +261,8 @@ export default function CorticalViewer({
       disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
-      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-      renderer.domElement.removeEventListener('wheel', onWheel);
       renderer.domElement.removeEventListener('pointermove', onPick);
-      window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('pointermove', onPointerMove);
+      controls.dispose();
       group.children.forEach((child) => {
         const mesh = child as THREE.Mesh;
         mesh.geometry.dispose();
@@ -305,7 +272,7 @@ export default function CorticalViewer({
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
     };
 
-    sceneRef.current = { renderer, scene, camera, meshes: {}, group, dispose };
+    sceneRef.current = { renderer, scene, camera, meshes: {}, group, controls, dispose };
     return dispose;
     // Deliberately mount-once: geometry and values are updated by later effects.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -351,15 +318,16 @@ export default function CorticalViewer({
 
           const material = new THREE.MeshStandardMaterial({
             vertexColors: true,
-            roughness: 0.62,
-            metalness: 0.06,
+            roughness: 0.43,
+            metalness: 0.0,
             flatShading: false,
             side: THREE.DoubleSide,
           });
 
           const mesh = new THREE.Mesh(geometry, material);
-          // Separate the hemispheres slightly so the medial walls stay visible.
-          mesh.position.x = hemisphere === 'L' ? -6 : 6;
+          // Each hemi is centred by the API. Recreate a natural interhemispheric
+          // gap here; a 6-unit shift made the surfaces overlap and look flat.
+          mesh.position.x = hemisphere === 'L' ? -42 : 42;
           mesh.userData.vertexOffset = loaded.hemispheres[hemisphere].vertex_offset;
           mesh.userData.hemi = hemisphere;
           context.group.add(mesh);
@@ -466,10 +434,10 @@ export default function CorticalViewer({
     if (!context) return;
     const preset = VIEWS[view];
     const spherical = new THREE.Spherical(
-      context.camera.position.length(), preset.polar, preset.azimuth,
+      context.camera.position.distanceTo(context.controls.target), preset.polar, preset.azimuth,
     );
-    context.camera.position.setFromSpherical(spherical);
-    context.camera.lookAt(0, 0, 0);
+    context.camera.position.setFromSpherical(spherical).add(context.controls.target);
+    context.controls.update();
   }, [view]);
 
   useEffect(() => {
@@ -520,6 +488,12 @@ export default function CorticalViewer({
         >
           <div style={{ color: 'var(--fg-muted)' }}>vertex {hover.vertex}</div>
           <div className="font-semibold">{hover.value.toFixed(4)}</div>
+        </div>
+      )}
+
+      {showControls && (
+        <div className="pointer-events-none absolute left-3 top-3 rounded-md px-2 py-1 text-[0.62rem] glass" style={{ color: 'var(--fg-muted)' }}>
+          Drag rotate | scroll zoom | right-drag pan
         </div>
       )}
 

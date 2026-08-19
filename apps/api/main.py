@@ -14,7 +14,7 @@ from neurotribe.config import get_settings
 from neurotribe.logging_setup import configure_logging, get_logger
 
 from apps.api.routers import (
-    cohort, dashboard, data, groups, jobs, logs, qc, reports, stimulus,
+    cohort, dashboard, data, exploratory, groups, jobs, logs, qc, reports, stimulus,
     subjects, surface, system,
 )
 
@@ -114,6 +114,6 @@ def health() -> dict:
     }
 
 
-for router in (dashboard, system, data, stimulus, cohort, subjects, groups, qc,
+for router in (exploratory, dashboard, system, data, stimulus, cohort, subjects, groups, qc,
                jobs, logs, reports, surface):
     app.include_router(router.router, prefix="/api")

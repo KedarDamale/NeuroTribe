@@ -31,6 +31,17 @@ x-common-volumes: &common-volumes
   - ./work:/app/work
   - model-cache:/app/cache
 
+x-api-build: &api-build
+  context: .
+  dockerfile: docker/api.Dockerfile
+  target: ${BUILD_TARGET:-base}
+  args:
+    TRIBE_REPO: ${TRIBE_REPO:-https://github.com/facebookresearch/tribev2}
+    TRIBE_GIT_REF: ${TRIBE_GIT_REF:-main}
+    TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    TORCH_VERSION: ${TORCH_VERSION:-2.5.1+cpu}
+    TORCHVISION_VERSION: ${TORCHVISION_VERSION:-0.20.1+cpu}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -67,15 +78,15 @@ services:
       retries: 10
 
   api:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-      target: ${BUILD_TARGET:-base}
+    build: *api-build
     restart: unless-stopped
     environment:
       <<: *common-env
       NEUROTRIBE_AUTO_CREATE_SCHEMA: "0"   # migrations own the schema
       NEUROTRIBE_CORS_ORIGINS: "http://localhost:4321,http://127.0.0.1:4321,http://web:4321"
+      NEUROTRIBE__TRIBE__HOSTED__ENDPOINT_URL: ${NEUROTRIBE__TRIBE__HOSTED__ENDPOINT_URL:-}
+      NEUROTRIBE__TRIBE__HOSTED__PROTOCOL: ${NEUROTRIBE__TRIBE__HOSTED__PROTOCOL:-hf-space}
+      HF_TRIBE_ENDPOINT_TOKEN: ${HF_TRIBE_ENDPOINT_TOKEN:-}
     volumes: *common-volumes
     ports:
       - "${API_PORT:-8000}:8000"
@@ -92,11 +103,11 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      tribe-bootstrap:
+        condition: service_completed_successfully
 
   migrate:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
+    build: *api-build
     environment: *common-env
     volumes: *common-volumes
     command: ["alembic", "upgrade", "head"]
@@ -105,11 +116,20 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Downloads the pretrained TRIBE model once into model-cache.  This service
+  # is deliberately separate from the API so app startup remains deterministic
+  # and every inference-capable process shares exactly the same local weights.
+  tribe-bootstrap:
+    build: *api-build
+    environment:
+      <<: *common-env
+      NEUROTRIBE__TRIBE__BACKEND: real
+    volumes: *common-volumes
+    command: ["python", "scripts/preload_tribe.py"]
+    restart: "no"
+
   worker:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-      target: ${BUILD_TARGET:-base}
+    build: *api-build
     restart: unless-stopped
     environment: *common-env
     volumes:
@@ -132,6 +152,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      tribe-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "celery -A neurotribe.jobs.celery_app:app inspect ping -d celery@$$HOSTNAME || exit 1"]
       interval: 60s
@@ -140,10 +162,7 @@ services:
       start_period: 60s
 
   beat:
-    build:
-      context: .
-      dockerfile: docker/api.Dockerfile
-      target: ${BUILD_TARGET:-base}
+    build: *api-build
     restart: unless-stopped
     environment: *common-env
     volumes: *common-volumes

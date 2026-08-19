@@ -215,3 +215,13 @@ body::before {
   outline-offset: 2px;
   border-radius: 6px;
 }
+
+/* Single-subject exploratory controls. */
+.field, .upload-field { display: grid; gap: 0.38rem; font-size: 0.73rem; color: var(--fg-muted); }
+.field select, .upload-field input { width: 100%; border: 1px solid var(--line); border-radius: 0.55rem; background: color-mix(in oklab, var(--bg-elevated) 85%, transparent); color: var(--fg); padding: 0.6rem 0.7rem; font: inherit; }
+.upload-field { border: 1px dashed var(--line); border-radius: 0.55rem; padding: 0.55rem 0.7rem; }
+.upload-field input { border: 0; padding: 0; background: transparent; }
+.primary-button { display: inline-flex; align-items: center; justify-content: center; border-radius: 0.6rem; padding: 0.65rem 0.9rem; font-size: 0.8rem; font-weight: 700; color: #07111c; background: linear-gradient(135deg, var(--color-signal), var(--color-cyan)); transition: opacity .15s ease, transform .15s ease; }
+.primary-button:hover:not(:disabled) { transform: translateY(-1px); opacity: .94; }
+.primary-button:disabled { cursor: not-allowed; opacity: .45; }
+.status-pill { display: inline-flex; border: 1px solid color-mix(in oklab, var(--color-signal) 35%, transparent); border-radius: 999px; padding: .32rem .6rem; color: var(--color-signal); background: color-mix(in oklab, var(--color-signal) 10%, transparent); font-size: .7rem; font-weight: 700; }

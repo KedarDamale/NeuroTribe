@@ -210,6 +210,16 @@ tribe:
   applies_own_hrf_offset: true
   additional_hrf_shift_sec: 0.0
   backend: auto # auto | real | mock  (mock is fixtures-only, never final)
+  hosted:
+    # Optional protected GPU endpoint. Only the generated stimulus video is
+    # sent there; observed fMRI stays on this machine.
+    endpoint_url: null
+    token_env: HF_TRIBE_ENDPOINT_TOKEN
+    timeout_sec: 900
+    # hf-space uses the free, on-demand ZeroGPU Gradio Space in
+    # deploy/hf-tribe-zero-gpu. hf-toolkit and custom-container are paid
+    # managed-endpoint alternatives retained for compatibility.
+    protocol: hf-space
 
 alignment:
   interpolation: linear # linear | cubic

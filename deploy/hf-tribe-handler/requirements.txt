@@ -1,0 +1,4 @@
+# Hugging Face installs these inside its managed GPU inference image.
+numpy
+pandas
+git+https://github.com/facebookresearch/tribev2@main
